@@ -1,0 +1,15 @@
+services:
+  music-langmix:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD:-}
+    restart: unless-stopped
+    init: true
+    mem_limit: 2g
+    cpus: 2
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
