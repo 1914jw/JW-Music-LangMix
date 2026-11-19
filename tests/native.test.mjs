@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';import {renderNative} from '../server/render.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,readFile,writeFile,rm,mkdir} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {execFileSync} from 'node:child_process';import {renderNative} from '../server/render.mjs';
 let available=true;try{execFileSync('ffmpeg',['-version'],{stdio:'ignore'})}catch{available=false}
 test('native exporter renders real H264/AAC, labels and crossfades without a browser',{skip:!available},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'langmix-native-'));
@@ -22,6 +22,8 @@ test('timed custom banner hides and mandatory credit spans cuts with labels off 
  const early=frame(.5),hidden=frame(2),before=frame(2.9),end1=frame(3.5),end2=frame(4.5);
  const green=b=>b[(205*640+402)*3+1];if(showLabel){assert(green(early)>150);assert(green(hidden)<50);assert(green(end2)>150)}else assert(green(early)<50);
  const grayCount=b=>{let count=0;for(let y=330;y<355;y++)for(let x=50;x<590;x++){const i=(y*640+x)*3;if(b[i]>100&&Math.abs(b[i]-b[i+1])<30&&Math.abs(b[i]-b[i+2])<30)count++}return count};
+ console.log({showLabel,creditPixels:[grayCount(before),grayCount(end1),grayCount(end2)]});
+ if(grayCount(end1)<=50||grayCount(end2)<=50){await mkdir('tests-output',{recursive:true});for(const t of [2.9,3.5,4.5])execFileSync('ffmpeg',['-v','error','-y','-ss',String(t),'-i',join(dir,'mix.mp4'),'-frames:v','1',`tests-output/native-${showLabel}-${t}.png`]);}
  assert(grayCount(before)<10);assert(grayCount(end1)>50);assert(grayCount(end2)>50);
  }
  }finally{await rm(dir,{recursive:true,force:true})}
