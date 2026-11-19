@@ -1,3 +1,4 @@
+import {validateBanner,badgePNG,creditPNG,creditStart} from './banner.mjs';
 import {chooseFile,parseVTT,alignIntro,audioFeatures,makePlan,validatePlan} from './core.mjs';
 export class BrowserEngine {
  constructor(onProgress,signal){this.onProgress=onProgress;this.signal=signal;this.ff=null;this.context={};this.bytes=0}
@@ -30,12 +31,15 @@ export class BrowserEngine {
  }
  this.progress('planning',95);const p=makePlan(sources,cues,cueOffset,rms);if(!cues.length)this.warnings.push('warnCaptions');if(p.cuts.some(c=>c.kind==='acoustic'))this.warnings.push('warnAcoustic');p.warnings=[...new Set(this.warnings)];return p;
  }
- async render(p,quality,showLabel,labelFor){
- const times=validatePlan(p),ff=this.ff,h=quality,w=Math.round(h*16/9/2)*2;
+ async render(p,quality,showLabel,labelFor,options){
+ const times=validatePlan(p),ff=this.ff,h=quality,w=Math.round(h*16/9/2)*2,banner=validateBanner(options),scale=h/720;
+ await ff.writeFile('credit.png',await creditPNG());
  for(let i=0;i<p.sources.length;i++){
  this.context={stage:'rendering',base:3+i/p.sources.length*80,span:75/p.sources.length};this.progress('rendering',this.context.base);const s=p.sources[i],start=times[i]+s.offset,frames=Math.round((times[i+1]-times[i])*24);await ff.writeFile('source.mp4',new Uint8Array(await s.blob.arrayBuffer()));
- let args=['-ss',start.toFixed(6),'-i','source.mp4'];let filter=`[0:v:0]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1[v]`;
- if(showLabel){await ff.writeFile('badge.png',await badge(labelFor(s.code)));args.push('-i','badge.png');filter+=`;[1:v:0]scale=-1:${Math.max(22,Math.round(47*h/720))}[badge];[v][badge]overlay=${Math.round(24*h/720)}:${Math.round(24*h/720)}:format=auto[out]`}else filter+=';[v]null[out]';
+ let args=['-ss',start.toFixed(6),'-i','source.mp4'];let filter=`[0:v:0]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,setpts=PTS-STARTPTS[v]`;
+ if(showLabel){await ff.writeFile('badge.png',await badgePNG(labelFor(s.code),banner.design));args.push('-i','badge.png');filter+=`;[1:v:0]scale=${Math.round(banner.design.width*scale)}:${Math.round(banner.design.height*scale)}[badge];[v][badge]overlay=${Math.round(banner.x*scale)}:${Math.round(banner.y*scale)}:format=auto${banner.duration===null?'':":enable='lt(t,"+banner.duration+")'"}[labeled]`}else filter+=';[v]null[labeled]';
+ args.push('-i','credit.png');filter+=`;[${showLabel?2:1}:v:0]scale=${w}:${Math.round(42*scale)}[credit];[labeled][credit]overlay=0:H-h-${Math.round(8*scale)}:format=auto:enable='gte(t,${creditStart(p.duration,times[i]).toFixed(6)})'[out]`;
+
  await this.exec([...args,'-filter_complex',filter,'-map','[out]','-an','-sn','-frames:v',String(frames),'-c:v','libx264','-preset','ultrafast','-crf','21','-pix_fmt','yuv420p','-threads','1',`v${i}.mp4`]);
  const a=start-(i?.02:0),b=times[i+1]+s.offset+(i<p.sources.length-1?.02:0);await this.exec(['-i','source.mp4','-map','0:a:0','-af',`atrim=start=${Math.max(0,a).toFixed(6)}:end=${b.toFixed(6)},asetpts=PTS-STARTPTS,aresample=48000`,'-ac','2','-c:a','pcm_s16le',`a${i}.wav`]);await this.remove('source.mp4','badge.png');
  }
@@ -44,4 +48,3 @@ export class BrowserEngine {
  await this.exec(['-f','concat','-safe','0','-i','concat.txt','-i','audio.m4a','-map','0:v:0','-map','1:a:0','-c','copy','-t',p.duration.toFixed(6),'-movflags','+faststart','mix.mp4']);const bytes=await ff.readFile('mix.mp4'),blob=new Blob([bytes],{type:'video/mp4'});this.close();p.sources.forEach(s=>{s.blob=null});return blob;
  }
 }
-async function badge(text){const canvas=document.createElement('canvas');let ctx=canvas.getContext('2d');ctx.font='24px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';canvas.width=Math.ceil(ctx.measureText(text).width+30);canvas.height=47;ctx=canvas.getContext('2d');ctx.fillStyle='rgba(20,20,24,.58)';ctx.beginPath();if(ctx.roundRect)ctx.roundRect(0,0,canvas.width,canvas.height,7);else ctx.rect(0,0,canvas.width,canvas.height);ctx.fill();ctx.font='24px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';ctx.fillStyle='white';ctx.textBaseline='middle';ctx.fillText(text,15,24);return new Uint8Array(await(await new Promise(r=>canvas.toBlob(r,'image/png'))).arrayBuffer())}

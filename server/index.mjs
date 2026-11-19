@@ -10,12 +10,13 @@ import {promisify} from 'node:util';
 import {Readable} from 'node:stream';
 import {metadata,resolveSource,parseProviderSource,remote,allowedMediaUrl,vendors,MAX_FILE} from './source.mjs';
 import {prepareNative,renderNative} from './render.mjs';
+import {validateBanner} from '../public/banner.mjs';
 import {validatePlan} from '../public/core.mjs';
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const PUBLIC=join(ROOT,'public');
 const HEADERS={'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(), microphone=(), geolocation=()'};
 const types={'.html':'text/html; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml'};
-const knownErrors=new Set(['invalidURL','invalidSource','noVideo','network','badLink','tooLarge','durationLimit','downloadFailed','languageCount','invalidCuts','invalidOffset','noBoundaries','renderFailed','serverMissing','expired','busyServer','canceled']);
+const knownErrors=new Set(['invalidBanner','invalidURL','invalidSource','noVideo','network','badLink','tooLarge','durationLimit','downloadFailed','languageCount','invalidCuts','invalidOffset','noBoundaries','renderFailed','serverMissing','expired','busyServer','canceled']);
 export function parseRange(value,size){
  if(!value)return null;const m=/^bytes=(\d*)-(\d*)$/.exec(value);if(!m||(!m[1]&&!m[2]))throw Error('range');
  let start=m[1]?Number(m[1]):Math.max(0,size-Number(m[2])),end=m[2]&&m[1]?Number(m[2]):size-1;
@@ -72,7 +73,7 @@ export async function createApp({tempRoot=process.env.TEMP_ROOT||join(tmpdir(),'
  if(!jm[2]&&method==='DELETE'){await cleanup(j);return json(res,{deleted:true})}
  if(jm[2]==='render'&&method==='POST'){
  if(j.state!=='ready')return json(res,{error:'invalidSource'},409);const input=await body(req);if(!Array.isArray(input.cuts)||!Array.isArray(input.offsets)||input.cuts.length!==j.plan.sources.length-1||input.offsets.length!==j.plan.sources.length||input.offsets[0]!==0)throw Error('invalidCuts');
- const candidate={duration:j.plan.duration,cuts:input.cuts.map(x=>({time:Math.round(x*24)/24})),sources:j.plan.sources.map((s,i)=>({...s,offset:input.offsets[i]}))};validatePlan(candidate);j.plan=candidate;j.options.locale=input.locale==='de'?'de':'en';j.showLabel=input.showLabel!==false;enqueue(j,'render');return json(res,{id:j.id},202);
+ const candidate={duration:j.plan.duration,cuts:input.cuts.map(x=>({time:Math.round(x*24)/24})),sources:j.plan.sources.map((s,i)=>({...s,offset:input.offsets[i]}))};validatePlan(candidate);const banner=validateBanner(input.banner);j.banner=banner;j.plan=candidate;j.options.locale=input.locale==='de'?'de':'en';j.showLabel=input.showLabel!==false;enqueue(j,'render');return json(res,{id:j.id},202);
  }
  if(jm[2]==='result'&&['GET','HEAD'].includes(method)&&j.state==='done'){
  const file=join(j.dir,'mix.mp4'),size=(await stat(file)).size;let range;try{range=parseRange(req.headers.range,size)}catch{res.writeHead(416,{...HEADERS,'Content-Range':`bytes */${size}`});return res.end()}

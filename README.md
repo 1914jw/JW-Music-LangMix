@@ -70,3 +70,50 @@ This project is unofficial and is not affiliated with, endorsed, sponsored, or s
 The browser renderer fetches `@ffmpeg/ffmpeg@0.12.15` and `@ffmpeg/core@0.12.10` from unpkg through your host. Native FFmpeg comes from the Docker image build or your host installation. See [FFmpeg licensing](https://ffmpeg.org/legal.html) and [ffmpeg.wasm](https://github.com/ffmpegwasm/ffmpeg.wasm).
 
 Run `npm test` from the project folder. The native export test requires `ffmpeg` and `ffprobe`. The server export has been tested, while testing on a physical iPhone is still pending.
+
+## Version 1.1.0 — language banners
+
+Self-hosted deployment remains on `main`. This release does **not** add a
+GitHub Pages deployment or a `web` branch. Browser rendering still relies on
+this host for media, metadata and FFmpeg assets. An independent Pages edition
+would need a separate local-file import workflow or verified cross-origin
+provider access; copying `public/` to Pages does not work.
+
+Both browser and server exports now support:
+
+- Always-visible banners or a custom duration (0.1–900 seconds), restarting
+  at the start of each language segment, including the first segment.
+- Four corners or an explicit X/Y position.
+- Custom JSON designs, with an example downloadable in the interface.
+- Width, height and X/Y in a 1280 × 720 reference frame, scaled to output.
+- A 16:9 placement preview. Long language names are clipped to the banner.
+
+JSON accepts only `width`, `height`, `fontSize`, `padding`, `background`,
+`color` and `opacity`. Colors must be six-digit hex values. Dimensions must
+fit within the video; uploads are limited to 8 KB. No scripts, external URLs,
+SVG markup or arbitrary FFmpeg filters are accepted. Designs are held in
+memory; server processing receives the validated settings when exporting.
+Browser and native font rendering can differ slightly by installed font.
+
+Every output contains this gray footer during its final three seconds:
+
+> Created with 1914jw/JW-Music-LangMix · Self-hosted
+
+This attribution is independent of the language-banner toggle, has no disable
+setting, and spans language cuts. It identifies the software, not ownership
+or permission to use the underlying media. Source code remains editable;
+it cannot prevent someone from modifying the renderer or editing the video.
+
+### Verification
+
+`npm test` includes settings validation and synthetic native video checks for
+banner placement, timed hiding, and end credits crossing language boundaries,
+including with language labels disabled. Native checks require FFmpeg and
+ffprobe and are explicitly skipped when they are absent. GitHub Actions runs
+these checks with FFmpeg installed. The synthetic browser export was also verified at 360p: timed banners hide,
+restart, and the credit spans a cut. To repeat manually, temporarily copy
+`tests/browser-export.html` to `public/qa.html`, open `/qa.html` on your running
+local host and click its test button. Remove that temporary public copy after
+testing. Physical iPhone/iPad testing remains pending.
+
+See [deployment review](DEPLOYMENT-REVIEW.md) before public hosting.

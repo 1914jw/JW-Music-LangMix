@@ -1,3 +1,4 @@
+import {validateBanner,CREDIT,creditStart} from '../public/banner.mjs';
 import {spawn} from 'node:child_process';
 import {readFile,writeFile,unlink,stat,open,access} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -47,12 +48,20 @@ async function fontPath(){
  for(const p of paths){try{await access(p);return p.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'")}catch{}}return null;
 }
 export async function renderNative(job,catalog){
- const p=job.plan,times=validatePlan(p),h=job.options.quality,w=Math.round(h*16/9/2)*2,font=await fontPath();
+ const p=job.plan,times=validatePlan(p),h=job.options.quality,w=Math.round(h*16/9/2)*2,font=await fontPath(),banner=validateBanner(job.banner),d=banner.design,scale=h/720;
+ await writeFile(join(job.dir,'credit.txt'),CREDIT);
  for(let i=0;i<p.sources.length;i++){
  const s=p.sources[i],start=times[i]+s.offset,duration=times[i+1]-times[i];job.stage='rendering';job.progress=3+i/p.sources.length*80;
- let filter=`scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1`;
- if(job.showLabel){const label=(job.options.locale==='de'?LABELS[s.code]:null)||catalog.find(l=>l.langcode===s.code)?.name||s.code;await writeFile(join(job.dir,'label.txt'),label.replace(/[\r\n]/g,' '));filter+=`,drawtext=textfile=label.txt:expansion=none${font?":fontfile='"+font+"'":''}:fontsize=${Math.round(24*h/720)}:fontcolor=white:x=${Math.round(24*h/720)}:y=${Math.round(24*h/720)}:box=1:boxcolor=black@0.58:boxborderw=${Math.round(10*h/720)}`}
- await runFFmpeg(job,['-ss',start.toFixed(6),'-i',s.path,'-map','0:v:0','-an','-sn','-vf',filter,'-frames:v',String(Math.round(duration*24)),'-c:v','libx264','-profile:v','main','-level:v','4.1','-preset','veryfast','-crf','21','-pix_fmt','yuv420p','-threads','2','-progress','pipe:1',`v${i}.mp4`],{onTime:t=>{job.progress=Math.min(83,3+(i+Math.min(1,t/duration))/p.sources.length*80)}});
+ let filter=`[0:v:0]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1,setpts=PTS-STARTPTS[v]`;
+ const fontArg=font?":fontfile='"+font+"'":'';
+ if(job.showLabel){
+ const label=(job.options.locale==='de'?LABELS[s.code]:null)||catalog.find(l=>l.langcode===s.code)?.name||s.code;await writeFile(join(job.dir,'label.txt'),label.replace(/[\r\n]/g,' '));
+ const bw=Math.round(d.width*scale),bh=Math.round(d.height*scale);
+ filter+=`;color=c=${d.background}@${d.opacity}:s=${bw}x${bh}:r=24,format=rgba,drawtext=textfile=label.txt:expansion=none${fontArg}:fontsize=${Math.round(d.fontSize*scale)}:fontcolor=${d.color}:x=${Math.round(d.padding*scale)}:y=(h-text_h)/2,crop=${Math.max(1,bw-Math.round(d.padding*scale))}:${bh}:0:0,pad=${bw}:${bh}:0:0:color=${d.background}@${d.opacity}[badge];[v][badge]overlay=${Math.round(banner.x*scale)}:${Math.round(banner.y*scale)}:format=auto${banner.duration===null?'':":enable='lt(t,"+banner.duration+")'"}[labeled]`;
+ }else filter+=';[v]null[labeled]';
+ filter+=`;[labeled]drawtext=textfile=credit.txt:expansion=none${fontArg}:fontsize=${Math.max(9,Math.round(18*scale))}:fontcolor=0xd1d1d1:x=(w-text_w)/2:y=h-text_h-${Math.round(18*scale)}:box=1:boxcolor=black@0.72:boxborderw=${Math.round(6*scale)}:enable='gte(t,${creditStart(p.duration,times[i]).toFixed(6)})'[out]`;
+
+ await runFFmpeg(job,['-ss',start.toFixed(6),'-i',s.path,'-filter_complex',filter,'-map','[out]','-an','-sn','-frames:v',String(Math.round(duration*24)),'-c:v','libx264','-profile:v','main','-level:v','4.1','-preset','veryfast','-crf','21','-pix_fmt','yuv420p','-threads','2','-progress','pipe:1',`v${i}.mp4`],{onTime:t=>{job.progress=Math.min(83,3+(i+Math.min(1,t/duration))/p.sources.length*80)}});
  const a=start-(i?.02:0),b=times[i+1]+s.offset+(i<p.sources.length-1?.02:0);
  await runFFmpeg(job,['-i',s.path,'-map','0:a:0','-af',`atrim=start=${Math.max(0,a).toFixed(6)}:end=${b.toFixed(6)},asetpts=PTS-STARTPTS,aresample=48000`,'-ac','2','-c:a','pcm_s16le',`a${i}.wav`]);
  }
@@ -62,5 +71,5 @@ export async function renderNative(job,catalog){
  await writeFile(join(job.dir,'concat.txt'),p.sources.map((_,i)=>`file 'v${i}.mp4'`).join('\n'));
  job.stage='finishing';job.progress=95;await runFFmpeg(job,['-f','concat','-safe','0','-i','concat.txt','-i','audio.m4a','-map','0:v:0','-map','1:a:0','-c','copy','-t',p.duration.toFixed(6),'-movflags','+faststart','mix.mp4']);
  job.resultSize=(await stat(join(job.dir,'mix.mp4'))).size;job.state='done';job.stage='done';job.progress=100;
- await discard(job,'label.txt','concat.txt','audio.m4a',...p.sources.flatMap((s,i)=>[s.path,`v${i}.mp4`,`a${i}.wav`]));
+ await discard(job,'credit.txt','label.txt','concat.txt','audio.m4a',...p.sources.flatMap((s,i)=>[s.path,`v${i}.mp4`,`a${i}.wav`]));
 }

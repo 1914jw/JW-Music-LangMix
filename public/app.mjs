@@ -1,5 +1,6 @@
 import {COMMON,LABELS,preferredCodes,randomWithPreferred,randomCodes,isIOS,clock,validatePlan} from './core.mjs';
 import {locale,t,translatedName} from './i18n.mjs';
+import {setupBanner} from './banner-ui.mjs';
 import {renderShell} from './view.mjs';
 renderShell();
 const $=id=>document.getElementById(id),colors=['#9583c8','#7e9fbd','#b8aa7a','#83a593','#bd8994','#8c94bd','#c49d79','#839da6','#a9a47d','#a387a5'];
@@ -7,6 +8,7 @@ const mobile=isIOS(navigator.userAgent,navigator.platform,navigator.maxTouchPoin
 const state={catalog:[],preferred:preferredCodes(navigator.languages||[navigator.language]),selected:[],song:null,checked:'',busy:false,plan:null,result:null,engine:null,job:null,controller:null,config:{nativeAvailable:false},serial:0,validation:0};
 let checkTimer,checkController,toastTimer;
 const name=c=>translatedName(c,state.catalog,LABELS);
+const bannerUI=setupBanner(()=>{if(state.result)forget()},()=>state.selected.length?name(state.selected[0]):'English');
 function mode(){return $('engine').value==='auto'?(mobile?'server':'browser'):$('engine').value}
 function toast(k){$('toast').textContent=t(k);$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4500)}
 function error(e,target='globalError'){$(target).textContent=e?t(e.message||e):'';$(target).hidden=!e}
@@ -21,7 +23,7 @@ function updateActions(){
  $('previewStatus').textContent=t(state.result?'done':state.plan?'ready':'idle');
  const native=mode()==='server';$('processingMode').textContent=t(native?'native':'local');$('privacyCaption').textContent=t(native?'privacyServer':'privacyBrowser');$('serverNotice').hidden=!native;
 }
-function busy(v){state.busy=v;for(const el of document.querySelectorAll('.editor button,.editor input,.editor select,#consent,#analyzeButton,#renderButton,#timelineEditor input,#resetCuts'))el.disabled=v||el.dataset.reference==='true'||(!!state.result&&!!el.closest('#timelineEditor'));$('progressArea').hidden=!v;updateActions()}
+function busy(v){state.busy=v;for(const el of document.querySelectorAll('.editor button,.editor input,.editor select,#consent,#analyzeButton,#renderButton,#timelineEditor input,#resetCuts'))el.disabled=v||el.dataset.reference==='true'||(!!state.result&&!!el.closest('#timelineEditor'));$('progressArea').hidden=!v;updateActions();bannerUI.refresh()}
 function progress(p){$('progressArea').hidden=false;$('progressTitle').textContent=t(p.stage);$('previewStatus').textContent=t(p.stage);$('progressBar').value=Math.min(99,Math.max(0,p.progress||0));let detail=`${t('estimated')} ${Math.round(p.progress||0)} %`;if(p.stage==='downloading')detail=`${((p.bytes||0)/1048576).toFixed(1)}${p.totalBytes?' / '+(p.totalBytes/1048576).toFixed(1):''} MB`;if(p.stage==='loading')detail=t('moduleHint');$('progressText').textContent=detail+' · '+t(mode()==='server'?'workingServer':'working');$('previewLanguage').hidden=true}
 function renderSelected(){
  $('selectedLanguages').replaceChildren();state.selected.forEach((code,i)=>{const chip=document.createElement('div');chip.className='language-chip';const rank=document.createElement('span');rank.textContent=i+1;const text=document.createElement('span');text.textContent=name(code);chip.append(rank,text);
@@ -37,7 +39,7 @@ function renderLanguages(){
  if(!list.length){const p=document.createElement('p');p.className='field-hint';p.textContent=t('noLanguage');$('languageList').append(p)}
 }
 function renderTimeline(){const p=state.plan,b=p?[0,...p.cuts.map(c=>c.time),p.duration]:state.selected.map((_,i)=>i).concat(state.selected.length);$('timeline').replaceChildren();$('timelineLegend').replaceChildren();state.selected.forEach((c,i)=>{const div=document.createElement('div');div.style.background=colors[i];div.style.flex=Math.max(.01,b[i+1]-b[i]);div.textContent=c;div.title=name(c);$('timeline').append(div);const legend=document.createElement('span'),dot=document.createElement('i');dot.style.background=colors[i];legend.append(dot,document.createTextNode(name(c)));$('timelineLegend').append(legend)});$('mixCount').textContent=state.selected.length+' '+t('languages');$('durationLabel').textContent=p?clock(p.duration):state.song?clock(state.song.duration):'—:—';$('qualityLabel').textContent=$('quality').value+'p'}
-function renderAll(){renderSelected();renderLanguages();renderTimeline();updateActions()}
+function renderAll(){renderSelected();renderLanguages();renderTimeline();updateActions();bannerUI.refresh()}
 function showSong(){const m=state.song;$('songInfo').hidden=!m;if(m){$('songTitle').textContent=m.title;$('songDetails').textContent=clock(m.duration)+(m.files?' · '+[...new Set(m.files.map(f=>f.label))].join(' / '):'')}renderTimeline()}
 async function checkURL(){
  const raw=$('songUrl').value.trim();if(state.song&&state.checked===raw)return state.song;clearTimeout(checkTimer);const version=++state.validation;checkController?.abort();checkController=new AbortController();
@@ -78,11 +80,11 @@ $('analyzeButton').onclick=async()=>{
 };
 function finish(result){state.result=result;const v=$('resultVideo');v.src=result.url;v.hidden=false;$('emptyVisual').hidden=true;$('stageBottom').hidden=true;$('previewLanguage').hidden=true;const link=$('downloadButton');link.href=result.download||result.url;link.download='Music-LangMix.mp4';link.hidden=false;$('exportNote').textContent=(result.size/1048576).toFixed(1)+' MB · '+clock(state.plan.duration)+' · '+t('reviewNote')+(state.job?' '+t('retention'):'');updateActions()}
 $('renderButton').onclick=async()=>{
- error('');if(!$('consent').checked)return error('consentError');try{validatePlan(state.plan)}catch(e){return error(e)}
+ error('');if(!$('consent').checked)return error('consentError');try{validatePlan(state.plan);bannerUI.read()}catch(e){return error(e)}
  const serial=++state.serial;busy(true);let wake;
  try{
- if(state.job){state.controller=new AbortController();await post('/api/jobs/'+state.job+'/render',{cuts:state.plan.cuts.map(c=>c.time),offsets:state.plan.sources.map(s=>s.offset),showLabel:$('showLabel').checked,locale},state.controller.signal);const done=await pollJob(state.job,state.controller.signal);finish({url:'/api/jobs/'+state.job+'/result',download:'/api/jobs/'+state.job+'/result?download=1',size:done.resultSize})}
- else{try{wake=await navigator.wakeLock?.request('screen')}catch{}const blob=await state.engine.render(state.plan,Number($('quality').value),$('showLabel').checked,name);finish({url:URL.createObjectURL(blob),size:blob.size})}
+ if(state.job){state.controller=new AbortController();await post('/api/jobs/'+state.job+'/render',{cuts:state.plan.cuts.map(c=>c.time),offsets:state.plan.sources.map(s=>s.offset),showLabel:$('showLabel').checked,locale,banner:bannerUI.read()},state.controller.signal);const done=await pollJob(state.job,state.controller.signal);finish({url:'/api/jobs/'+state.job+'/result',download:'/api/jobs/'+state.job+'/result?download=1',size:done.resultSize})}
+ else{try{wake=await navigator.wakeLock?.request('screen')}catch{}const blob=await state.engine.render(state.plan,Number($('quality').value),$('showLabel').checked,name,bannerUI.read());finish({url:URL.createObjectURL(blob),size:blob.size})}
  }catch(e){if(serial===state.serial&&e.name!=='AbortError'){error(e);state.engine?.close();state.engine=null;state.plan=null;$('timelineEditor').hidden=true;if(state.job){const id=state.job;state.job=null;rememberJob(null);void api('/api/jobs/'+id,{method:'DELETE'}).catch(()=>{})}}}finally{try{await wake?.release()}catch{}if(serial===state.serial)busy(false)}
 };
 $('cancelButton').onclick=()=>{++state.serial;state.controller?.abort();++state.validation;checkController?.abort();state.engine?.close();state.engine=null;busy(false);forget();toast('canceled')};
