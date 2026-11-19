@@ -21,10 +21,12 @@ test('timed custom banner hides and mandatory credit spans cuts with labels off 
  const frame=t=>execFileSync('ffmpeg',['-v','error','-ss',String(t),'-i',join(dir,'mix.mp4'),'-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'],{maxBuffer:2e6});
  const early=frame(.5),hidden=frame(2),before=frame(2.9),end1=frame(3.5),end2=frame(4.5);
  const green=b=>b[(205*640+402)*3+1];if(showLabel){assert(green(early)>150);assert(green(hidden)<50);assert(green(end2)>150)}else assert(green(early)<50);
- const grayCount=b=>{let count=0;for(let y=330;y<355;y++)for(let x=50;x<590;x++){const i=(y*640+x)*3;if(b[i]>100&&Math.abs(b[i]-b[i+1])<30&&Math.abs(b[i]-b[i+2])<30)count++}return count};
- console.log({showLabel,creditPixels:[grayCount(before),grayCount(end1),grayCount(end2)]});
- if(grayCount(end1)<=50||grayCount(end2)<=50){await mkdir('tests-output',{recursive:true});for(const t of [2.9,3.5,4.5])execFileSync('ffmpeg',['-v','error','-y','-ss',String(t),'-i',join(dir,'mix.mp4'),'-frames:v','1',`tests-output/native-${showLabel}-${t}.png`]);}
- assert(grayCount(before)<10);assert(grayCount(end1)>50);assert(grayCount(end2)>50);
+ // H.264 chroma subsampling blends blue into tiny gray glyphs.
+ // Red and green luminance distinguishes the credit from the blue fixture.
+ const creditPixels=b=>{let count=0;for(let y=330;y<355;y++)for(let x=50;x<590;x++){const i=(y*640+x)*3;if(b[i]>100&&b[i+1]>100)count++}return count};
+ console.log({showLabel,creditPixels:[creditPixels(before),creditPixels(end1),creditPixels(end2)]});
+ if(creditPixels(end1)<=50||creditPixels(end2)<=50){await mkdir('tests-output',{recursive:true});for(const t of [2.9,3.5,4.5])execFileSync('ffmpeg',['-v','error','-y','-ss',String(t),'-i',join(dir,'mix.mp4'),'-frames:v','1',`tests-output/native-${showLabel}-${t}.png`]);}
+ assert(creditPixels(before)<10);assert(creditPixels(end1)>50);assert(creditPixels(end2)>50);
  }
  }finally{await rm(dir,{recursive:true,force:true})}
 });
